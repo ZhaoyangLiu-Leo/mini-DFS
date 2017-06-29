@@ -21,6 +21,9 @@ global_cmd_flag = False
 global_file_id = None
 global_file_path = None
 global_cmd_type = None
+global_fetch_savepath = None
+global_fetch_servers = []
+global_fetch_blocks = None
 
 name_event = threading.Event()
 data_events=[]
@@ -42,7 +45,7 @@ def add_block_2_server(server_id, block, offset, count):
 
 
 def process_cmd(cmd):
-    global global_file_path, global_file_id, global_cmd_type
+    global global_file_path, global_file_id, global_cmd_type,global_fetch_savepath
     global global_read_offset, global_read_count
 
     cmds = cmd.split()
@@ -75,13 +78,17 @@ def process_cmd(cmd):
             if len(cmds) != 3:
                 print 'Usage: fetch file_id save_path'
             else:
-                try:
-                    global_file_id = int(cmds[1])
-                except ValueError:
-                    print 'Error: fileid should be integer'
+                global_fetch_savepath = cmds[2]
+                if not os.path.exists(os.path.split(global_fetch_savepath)[0]):
+                    print 'Error: input save_path does not exist'
                 else:
-                    global_cmd_type = OPERATION.fetch
-                    flag = True
+                    try:
+                        global_file_id = int(cmds[1])
+                    except ValueError:
+                        print 'Error: fileid should be integer'
+                    else:
+                        global_cmd_type = OPERATION.fetch
+                        flag = True
         else:
             global_cmd_type = OPERATION.quit
             flag = True
@@ -107,7 +114,9 @@ class NameNode(threading.Thread):
         global global_cmd_flag, global_cmd_type
 
         while True:
+            # print("namenode begin waiting")
             name_event.wait()
+            # print("name_event begin")
             if global_cmd_flag:
                 if global_cmd_type == OPERATION.put:
                     self.generate_split()
@@ -117,8 +126,11 @@ class NameNode(threading.Thread):
                     self.assign_fetch_work()
                 else:
                     pass
-                name_event.clear()
-                # print("namenode  completed.")
+            name_event.clear()
+            # print("namenode  completed.")
+            for data_event in data_events:
+                data_event.set()
+
 
     def load_meta(self):
         """
@@ -185,9 +197,7 @@ class NameNode(threading.Thread):
         self.update_meta()
 
         global_file_id = self.last_file_id
-        for data_event in data_events:
-            data_event.set()
-        return True
+
 
     def assign_read_work(self):
         """
@@ -220,15 +230,18 @@ class NameNode(threading.Thread):
         return False
 
     def assign_fetch_work(self):
-        global global_file_id
+        global global_file_id,global_fetch_blocks,global_fetch_servers
         file_id = global_file_id
 
         if file_id not in self.id_file_map:
             print 'No such file with id =', file_id
         else:
             file_blocks = self.id_block_map[file_id]
+            global_fetch_blocks=len(file_blocks)
             # 获取存储文件的对应server
-            return [choice(self.block_server_map[block]) for block in file_blocks]
+            for block in file_blocks:
+                global_fetch_servers.append(self.block_server_map[block][0])
+            return True
 
         return None
 
@@ -304,10 +317,21 @@ def run():
             name_event.set()
             for i in range(NUM_DATA_SERVER):
                 main_events[i].wait()
-            # print("main events wait completed.")
+            print("main events wait completed.")
+
             if global_cmd_type == OPERATION.put:
                 print 'Put succeed! File ID is %d' % (global_file_id,)
                 global_server_block_map.clear()
+            if global_cmd_type == OPERATION.fetch:
+                f_fetch = open(global_fetch_savepath,mode='wb')
+                for i in range(global_fetch_blocks):
+                    serverID=global_fetch_servers[i]
+                    blockFilePath="dfs/datanode"+str(serverID)+"/"+str(global_file_id)+'-part-'+str(i)
+                    blockFile=open(blockFilePath,"rb")
+                    f_fetch.write(blockFile.read())
+                    blockFile.close()
+                f_fetch.close()
+                print 'Finished download!'
 
             for i in range(NUM_DATA_SERVER):
                 main_events[i].clear()
