@@ -7,8 +7,9 @@ import math
 import pickle
 from enum import Enum
 import threading
+import sys
 
-operation_names = ('put', 'read', 'fetch', 'quit')
+operation_names = ('put', 'read', 'fetch', 'quit', 'ls')
 OPERATION = Enum('OPERATION', operation_names)
 
 # 全局变量，在Name Node和Data Node之间共享
@@ -21,10 +22,17 @@ global_cmd_flag = False
 global_file_id = None
 global_file_path = None
 global_cmd_type = None
+global_cmd_type = None
 
 name_event = threading.Event()
-data_events = [threading.Event()] * NUM_DATA_SERVER
-main_events = [threading.Event()] * NUM_DATA_SERVER
+ls_event = threading.Event()
+read_event = threading.Event()
+
+data_events = []
+main_events = []
+for j in range(NUM_DATA_SERVER):
+    data_events.append(threading.Event())
+    main_events.append(threading.Event())
 
 
 def add_block_2_server(server_id, block, offset, count):
@@ -76,6 +84,18 @@ def process_cmd(cmd):
                 else:
                     global_cmd_type = OPERATION.fetch
                     flag = True
+        elif cmds[0] == operation_names[3]:
+            if len(cmds) != 1:
+                print 'Usage: quit'
+            else:
+                flag = True
+                global_cmd_type = OPERATION.quit
+        elif cmds[0] == operation_names[4]:
+            if len(cmds) != 1:
+                print 'Usage: ls'
+            else:
+                flag = True
+                global_cmd_type = OPERATION.ls
         else:
             global_cmd_type = OPERATION.quit
             flag = True
@@ -109,6 +129,8 @@ class NameNode(threading.Thread):
                     self.assign_read_work()
                 elif global_cmd_type == OPERATION.fetch:
                     self.assign_fetch_work()
+                elif global_cmd_type == OPERATION.ls:
+                    self.list_dfs_files()
                 else:
                     pass
                 name_event.clear()
@@ -139,6 +161,12 @@ class NameNode(threading.Thread):
             self.metas['last_file_id'] = self.last_file_id
             self.metas['last_data_server_id'] = self.last_data_server_id
             pickle.dump(self.metas, f)
+
+    def list_dfs_files(self):
+        print 'total', len(self.id_file_map)
+        for file_id, (file_name, file_len) in self.id_file_map.items():
+            print LS_PATTERN % (file_id, file_name, file_len)
+        ls_event.set()
 
     def generate_split(self):
         """
@@ -205,9 +233,9 @@ class NameNode(threading.Thread):
             else:
                 # 从存储数据的block中随机选择一个data server，进行数据读取
                 read_server_candidates = self.block_server_map[BLOCK_PATTERN % (file_id, start_block)]
-                read_server = choice(read_server_candidates)
+                read_server_id = choice(read_server_candidates)
                 global_read_block = BLOCK_PATTERN % (file_id, start_block)
-                data_events[read_server].set()
+                data_events[read_server_id].set()
                 return True
 
         return False
@@ -244,8 +272,8 @@ class DataNode(threading.Thread):
                     self.read_file()
                 else:
                     pass
-                data_events[self._server_id].clear()
-                main_events[self._server_id].set()
+            data_events[self._server_id].clear()
+            main_events[self._server_id].set()
 
     def save_file(self):
         """
@@ -253,8 +281,8 @@ class DataNode(threading.Thread):
         :return:
         """
         global global_server_block_map, global_file_path
-        data_node_dir = DATA_NODE_DIR % (self._server_id,)
 
+        data_node_dir = DATA_NODE_DIR % (self._server_id,)
         with open(global_file_path, 'r') as f_in:
             for block, offset, count in global_server_block_map[self._server_id]:
                 f_in.seek(offset, 0)
@@ -272,6 +300,7 @@ class DataNode(threading.Thread):
             f_in.seek(global_read_offset)
             content = f_in.read(global_read_count)
             print content
+        read_event.set()
 
 
 def run():
@@ -291,21 +320,37 @@ def run():
 
         if global_cmd_flag:
             if global_cmd_type == OPERATION.quit:
-                break
+                sys.exit(0)
 
             name_event.set()
-            for i in range(NUM_DATA_SERVER):
-                main_events[i].wait()
 
             if global_cmd_type == OPERATION.put:
+                for i in range(NUM_DATA_SERVER):
+                    main_events[i].wait()
                 print 'Put succeed! File ID is %d' % (global_file_id,)
                 global_server_block_map.clear()
-
-            for i in range(NUM_DATA_SERVER):
-                main_events[i].clear()
+                for i in range(NUM_DATA_SERVER):
+                    main_events[i].clear()
+            elif global_cmd_type == OPERATION.read:
+                read_event.wait()
+                read_event.clear()
+            elif global_cmd_type == OPERATION.ls:
+                ls_event.wait()
+                ls_event.clear()
+            else:
+                pass
 
         print cmd_prompt,
 
-if __name__ == '__main__':
-    run()
 
+def start_stop_info(operation):
+    print operation, 'NameNode'
+    for i in range(NUM_DATA_SERVER):
+        print operation, 'DataNode' + str(i)
+
+if __name__ == '__main__':
+    start_stop_info('Start')
+    run()
+    start_stop_info('Stop')
+    # ns = NameNode('NameServer')
+    # ns.list_dfs_files()

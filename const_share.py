@@ -12,3 +12,4 @@ NAME_NODE_META_PATH = './dfs/namenode/meta.pkl'
 # Data Node
 DATA_NODE_DIR = './dfs/datanode%s'
 
+LS_PATTERN = '%s\t%20s\t%10s'
