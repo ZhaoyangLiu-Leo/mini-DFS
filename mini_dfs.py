@@ -23,8 +23,14 @@ global_file_path = None
 global_cmd_type = None
 
 name_event = threading.Event()
-data_events = [threading.Event()] * NUM_DATA_SERVER
-main_events = [threading.Event()] * NUM_DATA_SERVER
+data_events=[]
+main_events=[]
+for i in range(NUM_DATA_SERVER):
+    data_events.append(threading.Event())
+    main_events.append(threading.Event())
+# data_events = [threading.Event()] * NUM_DATA_SERVER
+# main_events = [threading.Event()] * NUM_DATA_SERVER
+
 
 
 def add_block_2_server(server_id, block, offset, count):
@@ -112,6 +118,7 @@ class NameNode(threading.Thread):
                 else:
                     pass
                 name_event.clear()
+                # print("namenode  completed.")
 
     def load_meta(self):
         """
@@ -246,6 +253,7 @@ class DataNode(threading.Thread):
                     pass
                 data_events[self._server_id].clear()
                 main_events[self._server_id].set()
+                # print("data node%d completed."%self._server_id)
 
     def save_file(self):
         """
@@ -296,14 +304,13 @@ def run():
             name_event.set()
             for i in range(NUM_DATA_SERVER):
                 main_events[i].wait()
-
+            # print("main events wait completed.")
             if global_cmd_type == OPERATION.put:
                 print 'Put succeed! File ID is %d' % (global_file_id,)
                 global_server_block_map.clear()
 
             for i in range(NUM_DATA_SERVER):
                 main_events[i].clear()
-
         print cmd_prompt,
 
 if __name__ == '__main__':
