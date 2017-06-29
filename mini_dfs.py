@@ -95,6 +95,8 @@ def process_cmd(cmd):
             if len(cmds) != 1:
                 print 'Usage: quit'
             else:
+                print "Bye: Exiting miniDFS..."
+                os._exit(0)
                 flag = True
                 global_cmd_type = OPERATION.quit
         elif cmds[0] == operation_names[4]:
@@ -321,6 +323,11 @@ class DataNode(threading.Thread):
 
 
 def run():
+    if not os.path.isdir("dfs"):
+        os.makedirs("dfs")
+        for i in range(4):
+            os.makedirs("dfs/datanode%d"%i)
+        os.makedirs("dfs/namenode")
     name_server = NameNode('NameServer')
     name_server.start()
 
