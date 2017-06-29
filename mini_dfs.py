@@ -222,19 +222,23 @@ class NameNode(threading.Thread):
 
         if file_id not in self.id_file_map:
             print 'No such file with id =', file_id
+            read_event.set()
         elif (read_offset + read_count) > self.id_file_map[file_id][1]:
             print 'The expected reading exceeds the file, file size:', self.id_file_map[file_id][1]
+            read_event.set()
         else:
             start_block = int(math.floor(read_offset / BLOCK_SIZE))
             space_left_in_block = (start_block + 1) * BLOCK_SIZE - read_offset
 
             if space_left_in_block < read_count:
                 print 'Cannot read across blocks'
+                read_event.set()
             else:
                 # 从存储数据的block中随机选择一个data server，进行数据读取
                 read_server_candidates = self.block_server_map[BLOCK_PATTERN % (file_id, start_block)]
                 read_server_id = choice(read_server_candidates)
                 global_read_block = BLOCK_PATTERN % (file_id, start_block)
+                global_read_offset = read_offset - start_block * BLOCK_SIZE
                 data_events[read_server_id].set()
                 return True
 
