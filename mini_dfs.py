@@ -27,6 +27,7 @@ global_fetch_savepath = None
 global_fetch_servers = []
 global_fetch_blocks = None
 
+# ----------------定义Event，控制线程通信----------------
 name_event = threading.Event()
 ls_event = threading.Event()
 read_event = threading.Event()
@@ -47,6 +48,9 @@ def add_block_2_server(server_id, block, offset, count):
 
 
 def process_cmd(cmd):
+    """
+    解析command，记录command是否有效和相应的命令
+    """
     global global_file_path, global_file_id, global_cmd_type, global_fetch_savepath
     global global_read_offset, global_read_count
 
@@ -95,6 +99,7 @@ def process_cmd(cmd):
             if len(cmds) != 1:
                 print 'Usage: quit'
             else:
+                start_stop_info('Stop')
                 print "Bye: Exiting miniDFS..."
                 os._exit(0)
                 flag = True
@@ -114,6 +119,9 @@ def process_cmd(cmd):
 
 
 class NameNode(threading.Thread):
+    """
+    Name Server，负责任务的分发，实现了ls、read、fetch功能
+    """
     def __init__(self, name):
         super(NameNode, self).__init__(name=name)
         self.metas = None
@@ -128,9 +136,9 @@ class NameNode(threading.Thread):
         global global_cmd_flag, global_cmd_type
 
         while True:
-            # print("namenode begin waiting")
+            # while true，一直等待可执行的命令
             name_event.wait()
-            # print("name_event begin")
+
             if global_cmd_flag:
                 if global_cmd_type == OPERATION.put:
                     self.generate_split()
@@ -167,12 +175,18 @@ class NameNode(threading.Thread):
         self.last_data_server_id = self.metas['last_data_server_id']
 
     def update_meta(self):
+        """
+        更新Name Node Meta Data，每次put操作后更新
+        """
         with open(NAME_NODE_META_PATH, 'wb') as f:
             self.metas['last_file_id'] = self.last_file_id
             self.metas['last_data_server_id'] = self.last_data_server_id
             pickle.dump(self.metas, f)
 
     def list_dfs_files(self):
+        """
+        ls命令，打印meta data信息
+        """
         print 'total', len(self.id_file_map)
         for file_id, (file_name, file_len) in self.id_file_map.items():
             print LS_PATTERN % (file_id, file_name, file_len)
@@ -254,6 +268,9 @@ class NameNode(threading.Thread):
         return False
 
     def assign_fetch_work(self):
+        """
+        分配下载任务
+        """
         global global_file_id, global_fetch_blocks, global_fetch_servers
         file_id = global_file_id
 
@@ -275,6 +292,9 @@ class NameNode(threading.Thread):
 
 
 class DataNode(threading.Thread):
+    """
+    Data Server，处理具体任务，put命令block的写入，read任务
+    """
     def __init__(self, server_id):
         super(DataNode, self).__init__(name='DataServer%s' % (server_id,))
         self._server_id = server_id
@@ -312,6 +332,10 @@ class DataNode(threading.Thread):
                     f_out.flush()
 
     def read_file(self):
+        """
+        根据偏移量和Count，读取block文件
+        :return:
+        """
         global global_read_block, global_read_offset, global_read_count
         read_path = (DATA_NODE_DIR % (self._server_id,)) + os.path.sep + global_read_block
 
@@ -323,11 +347,14 @@ class DataNode(threading.Thread):
 
 
 def run():
+    # 创建dfs目录
     if not os.path.isdir("dfs"):
         os.makedirs("dfs")
         for i in range(4):
             os.makedirs("dfs/datanode%d"%i)
         os.makedirs("dfs/namenode")
+
+    # 启动name server和data server
     name_server = NameNode('NameServer')
     name_server.start()
 
@@ -348,10 +375,6 @@ def run():
 
             name_event.set()
 
-            # for i in range(NUM_DATA_SERVER):
-            #     main_events[i].wait()
-            # print("main events wait completed.")
-
             if global_cmd_type == OPERATION.put:
                 for i in range(NUM_DATA_SERVER):
                     main_events[i].wait()
@@ -371,11 +394,11 @@ def run():
 
                 f_fetch = open(global_fetch_savepath, mode='wb')
                 for i in range(global_fetch_blocks):
-                    serverID = global_fetch_servers[i]
-                    blockFilePath = "dfs/datanode" + str(serverID) + "/" + str(global_file_id) + '-part-' + str(i)
-                    blockFile = open(blockFilePath, "rb")
-                    f_fetch.write(blockFile.read())
-                    blockFile.close()
+                    server_id = global_fetch_servers[i]
+                    block_file_path = "dfs/datanode" + str(server_id) + "/" + str(global_file_id) + '-part-' + str(i)
+                    block_file = open(block_file_path, "rb")
+                    f_fetch.write(block_file.read())
+                    block_file.close()
                 f_fetch.close()
                 print 'Finished download!'
                 for i in range(NUM_DATA_SERVER):
@@ -394,6 +417,3 @@ def start_stop_info(operation):
 if __name__ == '__main__':
     start_stop_info('Start')
     run()
-    start_stop_info('Stop')
-    # ns = NameNode('NameServer')
-    # ns.list_dfs_files()
